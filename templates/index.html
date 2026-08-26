@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Grain Quality Analyzer</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="hero">
+<div class="badge">COMPUTER VISION PROJECT</div>
+<h1>Grain Quality Analyzer</h1>
+<p>Grain Quality Analysis Using Image Processing Approach</p>
+<span>Developed by <strong>Dar Mohsin</strong></span>
+</header>
+<main class="container">
+<section class="card upload-card">
+<h2>Upload Grain Image</h2>
+<p class="muted">Use a clear image with a contrasting background.</p>
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+<form method="POST" action="/analyze" enctype="multipart/form-data">
+<label class="file-box">
+<span>Choose grain image</span>
+<input type="file" name="grain_image" accept="image/*" required>
+</label>
+<button type="submit">Analyze Grain</button>
+</form>
+</section>
+<section class="pipeline">
+<div><strong>01</strong><span>Preprocess</span></div>
+<div><strong>02</strong><span>Segment</span></div>
+<div><strong>03</strong><span>Detect</span></div>
+<div><strong>04</strong><span>Measure</span></div>
+<div><strong>05</strong><span>Classify</span></div>
+</section>
+</main>
+<footer>Grain Quality Analysis • Dar Mohsin</footer>
+</body>
+</html>
