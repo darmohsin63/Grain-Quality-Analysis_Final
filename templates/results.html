@@ -1,55 +1,741 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
+
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Analysis Results</title>
-<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>
+        Analysis Results | GrainVision
+    </title>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='style.css') }}"
+    >
+
 </head>
-<body>
-<header class="hero compact">
-<div class="badge">ANALYSIS COMPLETE</div>
-<h1>Grain Quality Results</h1>
-<p>Developed by <strong>Dar Mohsin</strong></p>
-</header>
-<main class="container">
-<section class="stats">
-<div class="stat"><span>Total</span><strong>{{ result.total }}</strong></div>
-<div class="stat good"><span>Good</span><strong>{{ result.good }}</strong></div>
-<div class="stat average"><span>Average</span><strong>{{ result.average }}</strong></div>
-<div class="stat defective"><span>Defective</span><strong>{{ result.defective }}</strong></div>
-<div class="stat quality"><span>Quality</span><strong>{{ result.quality_percentage }}%</strong></div>
+
+
+<body class="results-page">
+
+
+<!-- =====================================================
+     NAVBAR
+===================================================== -->
+
+<nav class="navbar">
+
+    <a href="/" class="brand">
+
+        <div class="brand-mark">
+            <span></span>
+            <span></span>
+            <span></span>
+        </div>
+
+        <div>
+
+            <strong>
+                GrainVision
+            </strong>
+
+            <small>
+                IMAGE ANALYSIS
+            </small>
+
+        </div>
+
+    </a>
+
+
+    <div class="nav-links">
+
+        <a href="/">
+            New Analysis
+        </a>
+
+        <a href="#features">
+            Features
+        </a>
+
+    </div>
+
+
+    <a
+        href="/"
+        class="nav-button"
+    >
+        ← New Sample
+    </a>
+
+</nav>
+
+
+<!-- =====================================================
+     RESULT HEADER
+===================================================== -->
+
+<section class="result-header">
+
+    <div>
+
+        <span class="section-number">
+            ANALYSIS REPORT
+        </span>
+
+        <h1>
+            Grain quality
+            <em>assessment</em>
+        </h1>
+
+        <p>
+            Computer-vision analysis of the submitted
+            grain sample.
+        </p>
+
+    </div>
+
+
+    <div class="report-status">
+
+        <span class="status-dot"></span>
+
+        ANALYSIS COMPLETE
+
+    </div>
+
 </section>
-<section class="card">
-<h2>Detected Grains</h2>
-<img class="result-image" src="{{ url_for('files', filename=result.annotated_image) }}">
-</section>
-<section class="card">
-<h2>Analysis Graphs</h2>
-<div class="graphs">
-<img src="{{ url_for('files', filename=result.area_plot) }}">
-<img src="{{ url_for('files', filename=result.quality_plot) }}">
+
+
+<!-- =====================================================
+     KEY STATISTICS
+===================================================== -->
+
+<section class="result-container">
+
+    <div class="result-stats">
+
+
+        <div class="result-stat total">
+
+            <span>
+                TOTAL GRAINS
+            </span>
+
+            <strong>
+                {{ result.total }}
+            </strong>
+
+            <small>
+                detected objects
+            </small>
+
+        </div>
+
+
+        <div class="result-stat good">
+
+            <span>
+                GOOD
+            </span>
+
+            <strong>
+                {{ result.good }}
+            </strong>
+
+            <small>
+                acceptable
+            </small>
+
+        </div>
+
+
+        <div class="result-stat mixed">
+
+            <span>
+                MIXED
+            </span>
+
+            <strong>
+                {{ result.average }}
+            </strong>
+
+            <small>
+                mixed quality
+            </small>
+
+        </div>
+
+
+        <div class="result-stat defective">
+
+            <span>
+                DEFECTIVE
+            </span>
+
+            <strong>
+                {{ result.defective }}
+            </strong>
+
+            <small>
+                requires attention
+            </small>
+
+        </div>
+
+
+        <div class="result-stat percentage">
+
+            <span>
+                QUALITY INDEX
+            </span>
+
+            <strong>
+                {{ result.quality_percentage }}%
+            </strong>
+
+            <small>
+                preliminary indicator
+            </small>
+
+        </div>
+
+    </div>
+
+
+<!-- =====================================================
+     RESULT TABS
+===================================================== -->
+
+<div class="result-tabs">
+
+    <button
+        class="result-tab active"
+        data-tab="summary"
+    >
+        Summary
+    </button>
+
+    <button
+        class="result-tab"
+        data-tab="visual"
+    >
+        Visual Analysis
+    </button>
+
+    <button
+        class="result-tab"
+        data-tab="features"
+    >
+        Grain Features
+    </button>
+
+    <button
+        class="result-tab"
+        data-tab="charts"
+    >
+        Charts
+    </button>
+
 </div>
+
+
+<!-- =====================================================
+     SUMMARY TAB
+===================================================== -->
+
+<div
+    class="result-panel active"
+    id="summary"
+>
+
+    <div class="summary-grid">
+
+        <div class="large-result-card">
+
+            <span class="section-number">
+                QUALITY SUMMARY
+            </span>
+
+            <h2>
+                Sample overview
+            </h2>
+
+            <div class="quality-ring">
+
+                <div>
+
+                    <strong>
+                        {{ result.quality_percentage }}%
+                    </strong>
+
+                    <span>
+                        Quality
+                    </span>
+
+                </div>
+
+            </div>
+
+            <p>
+                The current image contains
+                <strong>{{ result.total }}</strong>
+                detected grain objects.
+            </p>
+
+        </div>
+
+
+        <div class="observation-card">
+
+            <span class="section-number">
+                OBSERVATIONS
+            </span>
+
+            <h3>
+                Analysis notes
+            </h3>
+
+            <ul>
+
+                <li>
+                    <span>01</span>
+                    Grain regions were identified
+                    using image segmentation.
+                </li>
+
+                <li>
+                    <span>02</span>
+                    Morphological features were
+                    calculated for detected regions.
+                </li>
+
+                <li>
+                    <span>03</span>
+                    Quality categories are based on
+                    the project's classification criteria.
+                </li>
+
+                <li>
+                    <span>04</span>
+                    Results should be interpreted as
+                    image-based analysis.
+                </li>
+
+            </ul>
+
+        </div>
+
+    </div>
+
+</div>
+
+
+<!-- =====================================================
+     VISUAL TAB
+===================================================== -->
+
+<div
+    class="result-panel"
+    id="visual"
+>
+
+    <div class="image-result-card">
+
+        <div class="card-heading">
+
+            <div>
+
+                <span class="section-number">
+                    COMPUTER VISION OUTPUT
+                </span>
+
+                <h2>
+                    Detected grain regions
+                </h2>
+
+            </div>
+
+            <span class="image-label">
+                ANNOTATED IMAGE
+            </span>
+
+        </div>
+
+
+        <div class="analysis-image">
+
+            <img
+                src="{{ url_for(
+                    'files',
+                    filename=result.annotated_image
+                ) }}"
+                alt="Annotated grain analysis"
+            >
+
+        </div>
+
+    </div>
+
+
+    <div class="image-result-card">
+
+        <div class="card-heading">
+
+            <div>
+
+                <span class="section-number">
+                    SEGMENTATION
+                </span>
+
+                <h2>
+                    Binary grain mask
+                </h2>
+
+            </div>
+
+        </div>
+
+
+        <div class="analysis-image dark">
+
+            <img
+                src="{{ url_for(
+                    'files',
+                    filename=result.mask_image
+                ) }}"
+                alt="Binary segmentation mask"
+            >
+
+        </div>
+
+    </div>
+
+</div>
+
+
+<!-- =====================================================
+     FEATURES TAB
+===================================================== -->
+
+<div
+    class="result-panel"
+    id="features"
+>
+
+    <div class="feature-card">
+
+        <div class="card-heading">
+
+            <div>
+
+                <span class="section-number">
+                    FEATURE EXTRACTION
+                </span>
+
+                <h2>
+                    Grain measurements
+                </h2>
+
+            </div>
+
+            <span class="image-label">
+                CSV DATA
+            </span>
+
+        </div>
+
+
+        {% if result.features %}
+
+        <div class="table-wrapper">
+
+            <table>
+
+                <thead>
+
+                    <tr>
+
+                        <th>ID</th>
+                        <th>AREA</th>
+                        <th>LENGTH</th>
+                        <th>WIDTH</th>
+                        <th>ASPECT</th>
+                        <th>SOLIDITY</th>
+                        <th>QUALITY</th>
+
+                    </tr>
+
+                </thead>
+
+
+                <tbody>
+
+                {% for grain in result.features %}
+
+                    <tr>
+
+                        <td>
+                            {{ grain.Grain_ID }}
+                        </td>
+
+                        <td>
+                            {{ grain.Area }}
+                        </td>
+
+                        <td>
+                            {{ grain.Length }}
+                        </td>
+
+                        <td>
+                            {{ grain.Width }}
+                        </td>
+
+                        <td>
+                            {{ grain.Aspect_Ratio }}
+                        </td>
+
+                        <td>
+                            {{ grain.Solidity }}
+                        </td>
+
+                        <td>
+
+                            <span
+                                class="quality-badge
+                                {% if grain.Quality == 'Good' %}
+                                    good
+                                {% elif grain.Quality == 'Average' %}
+                                    mixed
+                                {% else %}
+                                    defective
+                                {% endif %}"
+                            >
+
+                                {% if grain.Quality == 'Average' %}
+                                    Mixed
+                                {% else %}
+                                    {{ grain.Quality }}
+                                {% endif %}
+
+                            </span>
+
+                        </td>
+
+                    </tr>
+
+                {% endfor %}
+
+                </tbody>
+
+            </table>
+
+        </div>
+
+        {% else %}
+
+        <div class="empty-state">
+            No grain features were detected.
+        </div>
+
+        {% endif %}
+
+    </div>
+
+</div>
+
+
+<!-- =====================================================
+     CHARTS TAB
+===================================================== -->
+
+<div
+    class="result-panel"
+    id="charts"
+>
+
+    <div class="charts-grid">
+
+        <div class="chart-card">
+
+            <span class="section-number">
+                DISTRIBUTION
+            </span>
+
+            <h2>
+                Grain area
+            </h2>
+
+            <img
+                src="{{ url_for(
+                    'files',
+                    filename=result.area_plot
+                ) }}"
+                alt="Grain area distribution"
+            >
+
+        </div>
+
+
+        <div class="chart-card">
+
+            <span class="section-number">
+                CLASSIFICATION
+            </span>
+
+            <h2>
+                Quality distribution
+            </h2>
+
+            <img
+                src="{{ url_for(
+                    'files',
+                    filename=result.quality_plot
+                ) }}"
+                alt="Quality distribution"
+            >
+
+        </div>
+
+    </div>
+
+</div>
+
+
+<!-- =====================================================
+     DOWNLOADS
+===================================================== -->
+
+<section class="download-section">
+
+    <div>
+
+        <span class="section-number">
+            EXPORT
+        </span>
+
+        <h2>
+            Take your results with you
+        </h2>
+
+    </div>
+
+
+    <div class="download-buttons">
+
+        <a
+            href="{{ url_for(
+                'files',
+                filename=result.features_csv
+            ) }}"
+        >
+            Feature CSV
+            <span>↓</span>
+        </a>
+
+
+        <a
+            href="{{ url_for(
+                'files',
+                filename=result.summary_csv
+            ) }}"
+        >
+            Summary CSV
+            <span>↓</span>
+        </a>
+
+
+        <a
+            href="{{ url_for(
+                'files',
+                filename=result.mask_image
+            ) }}"
+        >
+            Binary Mask
+            <span>↓</span>
+        </a>
+
+    </div>
+
 </section>
-<section class="card">
-<h2>Grain Features</h2>
-{% if result.features %}
-<div class="table-wrapper"><table>
-<thead><tr><th>ID</th><th>Area</th><th>Length</th><th>Width</th><th>Aspect</th><th>Solidity</th><th>Quality</th></tr></thead>
-<tbody>
-{% for grain in result.features %}
-<tr><td>{{ grain.Grain_ID }}</td><td>{{ grain.Area }}</td><td>{{ grain.Length }}</td><td>{{ grain.Width }}</td><td>{{ grain.Aspect_Ratio }}</td><td>{{ grain.Solidity }}</td><td>{{ grain.Quality }}</td></tr>
-{% endfor %}
-</tbody></table></div>
-{% else %}<p class="muted">No grains detected. Try another image or adjust parameters.</p>{% endif %}
+
+
 </section>
-<section class="downloads">
-<a href="{{ url_for('files', filename=result.features_csv) }}">Download Feature CSV</a>
-<a href="{{ url_for('files', filename=result.summary_csv) }}">Download Summary CSV</a>
-<a href="{{ url_for('files', filename=result.mask_image) }}">Download Binary Mask</a>
-</section>
-<a class="back" href="/">← Analyze another image</a>
-</main>
-<footer>Grain Quality Analysis • Dar Mohsin</footer>
+
+
+<!-- =====================================================
+     FOOTER
+===================================================== -->
+
+<footer>
+
+    <div class="footer-brand">
+        GrainVision
+    </div>
+
+    <span>
+        Grain Quality Analysis · Developed by Dar Mohsin
+    </span>
+
+</footer>
+
+
+<script>
+
+const tabs =
+    document.querySelectorAll(".result-tab");
+
+const panels =
+    document.querySelectorAll(".result-panel");
+
+
+tabs.forEach(
+    function(tab) {
+
+        tab.addEventListener(
+            "click",
+            function() {
+
+                const target =
+                    this.dataset.tab;
+
+                tabs.forEach(
+                    t => t.classList.remove(
+                        "active"
+                    )
+                );
+
+                panels.forEach(
+                    panel =>
+                        panel.classList.remove(
+                            "active"
+                        )
+                );
+
+                this.classList.add(
+                    "active"
+                );
+
+                document
+                    .getElementById(target)
+                    .classList.add(
+                        "active"
+                    );
+
+            }
+        );
+
+    }
+);
+
+</script>
+
+
 </body>
 </html>
