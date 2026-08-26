@@ -11,57 +11,255 @@ import matplotlib.pyplot as plt
 
 
 # ============================================================
-# GrainVision - Adaptive Grain Detection & Quality Analysis
+# GrainVision - Robust Grain Detection
+# ============================================================
 #
-# Designed for BOTH:
-#   - light grains on dark backgrounds
-#   - dark/brown grains on light backgrounds
+# Designed for:
+#   1. light grains on dark backgrounds
+#   2. dark/brown grains on light backgrounds
+#
+# The detector DOES NOT assume a fixed threshold or fixed
+# foreground polarity.
 #
 # Pipeline:
-#   adaptive foreground detection
-#       -> morphology
-#       -> connected-component filtering
-#       -> watershed separation
-#       -> feature extraction
-#       -> Good / Mixed / Defective classification
+#   image
+#      -> automatic polarity selection
+#      -> Otsu / adaptive threshold
+#      -> morphology
+#      -> component filtering
+#      -> optional watershed separation
+#      -> feature extraction
+#      -> preliminary Good / Mixed / Defective classification
 #
 # NOTE:
-# The quality classifier is a preliminary image-processing model.
-# It is NOT a scientifically validated agricultural grading standard.
+# The quality classifier is a preliminary demonstration model.
+# It is not a scientifically validated agricultural grading standard.
 # ============================================================
 
 
-MIN_AREA = 80
+MIN_AREA = 60
 MAX_AREA = 200000
 
-MIN_SOLIDITY = 0.60
-MIN_CIRCULARITY = 0.12
-
-# Grain-like objects are normally elongated.
-MIN_ASPECT = 1.35
+# Grain-like objects should not be extremely thin or circular.
+MIN_ASPECT = 1.25
 MAX_ASPECT = 8.0
 
-DISTANCE_RATIO = 0.32
+MIN_SOLIDITY = 0.55
+MIN_CIRCULARITY = 0.10
+
+# A large connected component is considered a possible group
+# of touching grains and may be processed with watershed.
+LARGE_COMPONENT_FACTOR = 2.5
 
 
-def safe_ratio(a, b):
+def ratio(a, b):
     return float(a / b) if b else 0.0
 
 
-# ------------------------------------------------------------
-# Foreground polarity detection
-# ------------------------------------------------------------
+# ============================================================
+# Basic contour plausibility
+# ============================================================
 
-def detect_foreground_polarity(gray):
-    """
-    Determine whether the objects are lighter or darker than the
-    background by looking at the image border.
+def plausible_grain(contour, shape):
+    area = cv2.contourArea(contour)
 
-    This fixes the major problem with the previous version:
-    the previous algorithm assumed grains were darker than the
-    background. Your current test image has LIGHT grains on a
-    DARK background.
-    """
+    if area < MIN_AREA or area > MAX_AREA:
+        return False
+
+    x, y, w, h = cv2.boundingRect(contour)
+
+    if w < 3 or h < 3:
+        return False
+
+    aspect = ratio(max(w, h), min(w, h))
+
+    if aspect < MIN_ASPECT or aspect > MAX_ASPECT:
+        return False
+
+    perimeter = cv2.arcLength(contour, True)
+
+    if perimeter <= 0:
+        return False
+
+    circularity = ratio(
+        4.0 * math.pi * area,
+        perimeter * perimeter
+    )
+
+    if circularity < MIN_CIRCULARITY:
+        return False
+
+    hull = cv2.convexHull(contour)
+    hull_area = cv2.contourArea(hull)
+
+    solidity = ratio(area, hull_area)
+
+    if solidity < MIN_SOLIDITY:
+        return False
+
+    image_area = shape[0] * shape[1]
+
+    # Reject a region occupying a huge fraction of the image.
+    if area > image_area * 0.20:
+        return False
+
+    return True
+
+
+# ============================================================
+# Build a mask for ONE assumed foreground polarity
+# ============================================================
+
+def build_mask(gray, foreground):
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+
+    # Otsu
+    if foreground == "bright":
+        _, otsu = cv2.threshold(
+            blurred,
+            0,
+            255,
+            cv2.THRESH_BINARY + cv2.THRESH_OTSU
+        )
+    else:
+        _, otsu = cv2.threshold(
+            blurred,
+            0,
+            255,
+            cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+        )
+
+    # Adaptive threshold gives a useful fallback when illumination
+    # is uneven.
+    if foreground == "bright":
+        adaptive = cv2.adaptiveThreshold(
+            blurred,
+            255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            31,
+            5
+        )
+    else:
+        adaptive = cv2.adaptiveThreshold(
+            blurred,
+            255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY_INV,
+            31,
+            5
+        )
+
+    # Otsu is the primary mask. Adaptive threshold is used only
+    # where it overlaps Otsu, which avoids turning text/noise into
+    # a giant foreground region.
+    mask = cv2.bitwise_and(
+        otsu,
+        adaptive
+    )
+
+    # If the overlap is too restrictive, retain Otsu.
+    if cv2.countNonZero(mask) < max(
+        100,
+        int(0.001 * gray.size)
+    ):
+        mask = otsu
+
+    # Morphological cleanup.
+    small_kernel = cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE,
+        (3, 3)
+    )
+
+    mask = cv2.morphologyEx(
+        mask,
+        cv2.MORPH_OPEN,
+        small_kernel,
+        iterations=1
+    )
+
+    medium_kernel = cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE,
+        (5, 5)
+    )
+
+    mask = cv2.morphologyEx(
+        mask,
+        cv2.MORPH_CLOSE,
+        medium_kernel,
+        iterations=2
+    )
+
+    return mask
+
+
+# ============================================================
+# Remove obviously invalid connected components
+# ============================================================
+
+def clean_components(mask):
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(
+        mask,
+        connectivity=8
+    )
+
+    cleaned = np.zeros_like(mask)
+
+    for label in range(1, count):
+
+        area = int(
+            stats[label, cv2.CC_STAT_AREA]
+        )
+
+        if area < MIN_AREA or area > MAX_AREA:
+            continue
+
+        x = int(stats[label, cv2.CC_STAT_LEFT])
+        y = int(stats[label, cv2.CC_STAT_TOP])
+        w = int(stats[label, cv2.CC_STAT_WIDTH])
+        h = int(stats[label, cv2.CC_STAT_HEIGHT])
+
+        # Keep objects touching the border out of the final result.
+        # They are usually incomplete grains or background.
+        if x <= 0 or y <= 0:
+            continue
+
+        if x + w >= mask.shape[1] - 1:
+            continue
+
+        if y + h >= mask.shape[0] - 1:
+            continue
+
+        component = np.uint8(labels == label) * 255
+
+        contours, _ = cv2.findContours(
+            component,
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_SIMPLE
+        )
+
+        if not contours:
+            continue
+
+        contour = max(
+            contours,
+            key=cv2.contourArea
+        )
+
+        if plausible_grain(
+            contour,
+            mask.shape
+        ):
+            cleaned[labels == label] = 255
+
+    return cleaned
+
+
+# ============================================================
+# Automatically choose bright or dark foreground
+# ============================================================
+
+def choose_best_mask(gray):
 
     h, w = gray.shape
 
@@ -69,398 +267,284 @@ def detect_foreground_polarity(gray):
         gray[0, :],
         gray[-1, :],
         gray[:, 0],
-        gray[:, -1],
+        gray[:, -1]
     ])
 
-    border_median = float(np.median(border))
-
-    image_median = float(np.median(gray))
-
-    # If the border is dark, foreground is expected to be bright.
-    if border_median < image_median:
-        return "bright"
-
-    return "dark"
-
-
-# ------------------------------------------------------------
-# Adaptive mask
-# ------------------------------------------------------------
-
-def create_grain_mask(image):
-
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-    blurred = cv2.GaussianBlur(
-        gray,
-        (5, 5),
-        0,
+    border_median = float(
+        np.median(border)
     )
 
-    polarity = detect_foreground_polarity(
-        blurred
+    border_mean = float(
+        np.mean(border)
     )
 
-    # Otsu gives a data-driven threshold instead of a fixed value.
-    otsu_value, _ = cv2.threshold(
-        blurred,
-        0,
-        255,
-        cv2.THRESH_BINARY + cv2.THRESH_OTSU,
-    )
+    # Strongly dark border -> likely bright grains.
+    if border_median < 60 and border_mean < 70:
+        candidates = ["bright"]
 
-    if polarity == "bright":
-
-        # Light grains on dark background.
-        _, mask = cv2.threshold(
-            blurred,
-            otsu_value,
-            255,
-            cv2.THRESH_BINARY,
-        )
+    # Strongly bright border -> likely dark grains.
+    elif border_median > 195 and border_mean > 185:
+        candidates = ["dark"]
 
     else:
+        # Unknown lighting: test BOTH polarities.
+        candidates = ["bright", "dark"]
 
-        # Dark grains on light background.
-        _, mask = cv2.threshold(
-            blurred,
-            otsu_value,
-            255,
-            cv2.THRESH_BINARY_INV,
+    best_mask = None
+    best_contours = []
+    best_score = -1e9
+    best_polarity = None
+
+    for polarity in candidates:
+
+        raw = build_mask(
+            gray,
+            polarity
         )
 
-    # --------------------------------------------------------
-    # HSV support
-    #
-    # Only use saturation as a supporting signal. It must not
-    # replace the polarity-aware intensity mask.
-    # --------------------------------------------------------
-
-    hsv = cv2.cvtColor(
-        image,
-        cv2.COLOR_BGR2HSV,
-    )
-
-    saturation = hsv[:, :, 1]
-
-    sat_value = float(
-        np.percentile(saturation, 70)
-    )
-
-    saturation_mask = np.uint8(
-        saturation > max(18, sat_value)
-    ) * 255
-
-    # Add saturation only inside already-detected foreground.
-    # This prevents random coloured text from becoming grains.
-    if polarity == "bright":
-
-        support = cv2.bitwise_and(
-            mask,
-            saturation_mask,
+        cleaned = clean_components(
+            raw
         )
 
-        mask = cv2.bitwise_or(
-            mask,
-            support,
-        )
-
-    # --------------------------------------------------------
-    # Morphology
-    # --------------------------------------------------------
-
-    open_kernel = cv2.getStructuringElement(
-        cv2.MORPH_ELLIPSE,
-        (3, 3),
-    )
-
-    mask = cv2.morphologyEx(
-        mask,
-        cv2.MORPH_OPEN,
-        open_kernel,
-        iterations=1,
-    )
-
-    close_kernel = cv2.getStructuringElement(
-        cv2.MORPH_ELLIPSE,
-        (7, 7),
-    )
-
-    mask = cv2.morphologyEx(
-        mask,
-        cv2.MORPH_CLOSE,
-        close_kernel,
-        iterations=2,
-    )
-
-    # --------------------------------------------------------
-    # Remove components touching the image border.
-    #
-    # A real grain can theoretically touch the border, but for
-    # this application it is safer to exclude incomplete grains.
-    # --------------------------------------------------------
-
-    n, labels, stats, _ = cv2.connectedComponentsWithStats(
-        mask,
-        connectivity=8,
-    )
-
-    cleaned = np.zeros_like(mask)
-
-    h, w = mask.shape
-
-    for label in range(1, n):
-
-        area = stats[label, cv2.CC_STAT_AREA]
-
-        if area < MIN_AREA or area > MAX_AREA:
-            continue
-
-        x = stats[label, cv2.CC_STAT_LEFT]
-        y = stats[label, cv2.CC_STAT_TOP]
-        cw = stats[label, cv2.CC_STAT_WIDTH]
-        ch = stats[label, cv2.CC_STAT_HEIGHT]
-
-        # Ignore components touching image boundary.
-        if x <= 0 or y <= 0 or x + cw >= w - 1 or y + ch >= h - 1:
-            continue
-
-        cleaned[labels == label] = 255
-
-    return cleaned
-
-
-# ------------------------------------------------------------
-# Grain plausibility filter
-# ------------------------------------------------------------
-
-def is_plausible_grain(contour, image_shape):
-
-    area = cv2.contourArea(contour)
-
-    if area < MIN_AREA or area > MAX_AREA:
-        return False
-
-    h_img, w_img = image_shape[:2]
-
-    x, y, w, h = cv2.boundingRect(contour)
-
-    if w < 3 or h < 3:
-        return False
-
-    aspect = safe_ratio(
-        max(w, h),
-        min(w, h),
-    )
-
-    if aspect < MIN_ASPECT or aspect > MAX_ASPECT:
-        return False
-
-    perimeter = cv2.arcLength(
-        contour,
-        True,
-    )
-
-    if perimeter <= 0:
-        return False
-
-    circularity = safe_ratio(
-        4 * math.pi * area,
-        perimeter * perimeter,
-    )
-
-    if circularity < MIN_CIRCULARITY:
-        return False
-
-    hull = cv2.convexHull(
-        contour
-    )
-
-    hull_area = cv2.contourArea(
-        hull
-    )
-
-    solidity = safe_ratio(
-        area,
-        hull_area,
-    )
-
-    if solidity < MIN_SOLIDITY:
-        return False
-
-    # Reject huge regions.
-    if area > h_img * w_img * 0.25:
-        return False
-
-    return True
-
-
-# ------------------------------------------------------------
-# Watershed
-# ------------------------------------------------------------
-
-def split_touching_grains(mask):
-
-    if cv2.countNonZero(mask) == 0:
-        return np.zeros_like(mask), []
-
-    distance = cv2.distanceTransform(
-        mask,
-        cv2.DIST_L2,
-        5,
-    )
-
-    maximum = float(
-        distance.max()
-    )
-
-    if maximum <= 0:
         contours, _ = cv2.findContours(
-            mask,
+            cleaned,
             cv2.RETR_EXTERNAL,
-            cv2.CHAIN_APPROX_SIMPLE,
+            cv2.CHAIN_APPROX_SIMPLE
         )
 
         contours = [
             c for c in contours
-            if is_plausible_grain(c, mask.shape)
+            if plausible_grain(
+                c,
+                gray.shape
+            )
         ]
 
+        # Score by number of plausible grains, but penalize a
+        # foreground area that is suspiciously large.
+        count_score = min(
+            len(contours),
+            300
+        )
+
+        foreground_fraction = (
+            cv2.countNonZero(cleaned)
+            / float(gray.size)
+        )
+
+        penalty = 0
+
+        if foreground_fraction > 0.35:
+            penalty += 150
+
+        elif foreground_fraction > 0.20:
+            penalty += 40
+
+        # Very tiny foreground is also suspicious.
+        if foreground_fraction < 0.00005:
+            penalty += 20
+
+        score = (
+            count_score * 10
+            - penalty
+        )
+
+        if score > best_score:
+            best_score = score
+            best_mask = cleaned
+            best_contours = contours
+            best_polarity = polarity
+
+    if best_mask is None:
+        best_mask = np.zeros_like(gray)
+        best_contours = []
+
+    return (
+        best_mask,
+        best_contours,
+        best_polarity
+    )
+
+
+# ============================================================
+# Optional watershed separation
+# ============================================================
+
+def split_large_components(mask, contours):
+
+    if not contours:
         return mask, contours
 
-    _, sure_fg = cv2.threshold(
-        distance,
-        DISTANCE_RATIO * maximum,
-        255,
-        cv2.THRESH_BINARY,
+    areas = [
+        cv2.contourArea(c)
+        for c in contours
+    ]
+
+    median_area = float(
+        np.median(areas)
     )
 
-    sure_fg = np.uint8(
-        sure_fg
-    )
+    if median_area <= 0:
+        return mask, contours
 
-    kernel = cv2.getStructuringElement(
-        cv2.MORPH_ELLIPSE,
-        (3, 3),
-    )
+    output_mask = np.zeros_like(mask)
+    final_contours = []
 
-    sure_bg = cv2.dilate(
-        mask,
-        kernel,
-        iterations=2,
-    )
+    for contour in contours:
 
-    unknown = cv2.subtract(
-        sure_bg,
-        sure_fg,
-    )
+        area = cv2.contourArea(contour)
 
-    marker_count, markers = cv2.connectedComponents(
-        sure_fg
-    )
+        # Normal isolated grain: retain it directly.
+        if area <= median_area * LARGE_COMPONENT_FACTOR:
 
-    markers = markers + 1
+            cv2.drawContours(
+                output_mask,
+                [contour],
+                -1,
+                255,
+                -1
+            )
 
-    markers[unknown == 255] = 0
-
-    watershed_image = cv2.cvtColor(
-        mask,
-        cv2.COLOR_GRAY2BGR,
-    )
-
-    cv2.watershed(
-        watershed_image,
-        markers,
-    )
-
-    separated = np.zeros_like(mask)
-
-    contours = []
-
-    for marker_id in range(
-        2,
-        marker_count + 1,
-    ):
-
-        region = (
-            np.uint8(
-                markers == marker_id
-            ) * 255
-        )
-
-        if cv2.countNonZero(region) < MIN_AREA:
+            final_contours.append(contour)
             continue
 
-        region_contours, _ = cv2.findContours(
-            region,
-            cv2.RETR_EXTERNAL,
-            cv2.CHAIN_APPROX_SIMPLE,
+        # Large component: try to separate touching grains.
+        component = np.zeros_like(mask)
+
+        cv2.drawContours(
+            component,
+            [contour],
+            -1,
+            255,
+            -1
         )
 
-        if not region_contours:
+        distance = cv2.distanceTransform(
+            component,
+            cv2.DIST_L2,
+            5
+        )
+
+        maximum = float(
+            distance.max()
+        )
+
+        if maximum <= 0:
+            cv2.drawContours(
+                output_mask,
+                [contour],
+                -1,
+                255,
+                -1
+            )
+            final_contours.append(contour)
             continue
 
-        contour = max(
-            region_contours,
-            key=cv2.contourArea,
+        _, sure_fg = cv2.threshold(
+            distance,
+            0.38 * maximum,
+            255,
+            cv2.THRESH_BINARY
         )
 
-        if is_plausible_grain(
-            contour,
-            mask.shape,
+        sure_fg = np.uint8(
+            sure_fg
+        )
+
+        sure_bg = cv2.dilate(
+            component,
+            cv2.getStructuringElement(
+                cv2.MORPH_ELLIPSE,
+                (3, 3)
+            ),
+            iterations=2
+        )
+
+        unknown = cv2.subtract(
+            sure_bg,
+            sure_fg
+        )
+
+        n_markers, markers = cv2.connectedComponents(
+            sure_fg
+        )
+
+        # If there is only one foreground marker, watershed
+        # cannot meaningfully split the component.
+        if n_markers <= 2:
+
+            cv2.drawContours(
+                output_mask,
+                [contour],
+                -1,
+                255,
+                -1
+            )
+            final_contours.append(contour)
+            continue
+
+        markers = markers + 1
+        markers[unknown == 255] = 0
+
+        temp = cv2.cvtColor(
+            component,
+            cv2.COLOR_GRAY2BGR
+        )
+
+        cv2.watershed(
+            temp,
+            markers
+        )
+
+        for marker_id in range(
+            2,
+            n_markers + 1
         ):
-            cv2.drawContours(
-                separated,
-                [contour],
-                -1,
-                255,
-                -1,
+
+            region = (
+                np.uint8(
+                    markers == marker_id
+                ) * 255
             )
 
-            contours.append(
-                contour
+            region_contours, _ = cv2.findContours(
+                region,
+                cv2.RETR_EXTERNAL,
+                cv2.CHAIN_APPROX_SIMPLE
             )
 
-    # Watershed can occasionally fail on an image containing isolated
-    # grains. Fall back to ordinary contours in that case.
-    if not contours:
+            if not region_contours:
+                continue
 
-        contours, _ = cv2.findContours(
-            mask,
-            cv2.RETR_EXTERNAL,
-            cv2.CHAIN_APPROX_SIMPLE,
-        )
-
-        contours = [
-            c for c in contours
-            if is_plausible_grain(
-                c,
-                mask.shape,
-            )
-        ]
-
-        separated = np.zeros_like(mask)
-
-        for contour in contours:
-            cv2.drawContours(
-                separated,
-                [contour],
-                -1,
-                255,
-                -1,
+            part = max(
+                region_contours,
+                key=cv2.contourArea
             )
 
-    return separated, contours
+            if plausible_grain(
+                part,
+                mask.shape
+            ):
+                cv2.drawContours(
+                    output_mask,
+                    [part],
+                    -1,
+                    255,
+                    -1
+                )
+                final_contours.append(part)
+
+    return (
+        output_mask,
+        final_contours
+    )
 
 
-# ------------------------------------------------------------
+# ============================================================
 # Feature extraction
-# ------------------------------------------------------------
+# ============================================================
 
-def extract_features(
-    contour,
-    gray,
-):
+def extract_features(contour, gray):
 
     area = cv2.contourArea(
         contour
@@ -468,7 +552,7 @@ def extract_features(
 
     perimeter = cv2.arcLength(
         contour,
-        True,
+        True
     )
 
     x, y, w, h = cv2.boundingRect(
@@ -477,28 +561,28 @@ def extract_features(
 
     length = max(
         w,
-        h,
+        h
     )
 
     width = min(
         w,
-        h,
+        h
     )
 
-    aspect_ratio = safe_ratio(
+    aspect = ratio(
         length,
-        width,
+        width
     )
 
-    circularity = safe_ratio(
+    circularity = ratio(
         4 * math.pi * area,
-        perimeter * perimeter,
+        perimeter * perimeter
     )
 
     equivalent_diameter = math.sqrt(
-        safe_ratio(
+        ratio(
             4 * area,
-            math.pi,
+            math.pi
         )
     )
 
@@ -510,9 +594,9 @@ def extract_features(
         hull
     )
 
-    solidity = safe_ratio(
+    solidity = ratio(
         area,
-        hull_area,
+        hull_area
     )
 
     rect = cv2.minAreaRect(
@@ -524,21 +608,19 @@ def extract_features(
     if rw > 0 and rh > 0:
         oriented_length = max(
             rw,
-            rh,
+            rh
         )
-
         oriented_width = min(
             rw,
-            rh,
+            rh
         )
-
     else:
         oriented_length = length
         oriented_width = width
 
     grain_mask = np.zeros(
         gray.shape,
-        dtype=np.uint8,
+        dtype=np.uint8
     )
 
     cv2.drawContours(
@@ -546,12 +628,12 @@ def extract_features(
         [contour],
         -1,
         255,
-        -1,
+        -1
     )
 
-    mean_intensity, std_intensity = cv2.meanStdDev(
+    mean, std = cv2.meanStdDev(
         gray,
-        mask=grain_mask,
+        mask=grain_mask
     )
 
     return {
@@ -559,79 +641,68 @@ def extract_features(
         "Perimeter": round(float(perimeter), 2),
         "Length": round(float(oriented_length), 2),
         "Width": round(float(oriented_width), 2),
-        "Aspect_Ratio": round(float(aspect_ratio), 3),
+        "Aspect_Ratio": round(float(aspect), 3),
         "Circularity": round(float(circularity), 3),
-        "Equivalent_Diameter": round(float(equivalent_diameter), 2),
+        "Equivalent_Diameter": round(
+            float(equivalent_diameter),
+            2
+        ),
         "Solidity": round(float(solidity), 3),
-        "Mean_Intensity": round(float(mean_intensity[0][0]), 2),
-        "Intensity_Std": round(float(std_intensity[0][0]), 2),
+        "Mean_Intensity": round(
+            float(mean[0][0]),
+            2
+        ),
+        "Intensity_Std": round(
+            float(std[0][0]),
+            2
+        ),
         "X": int(x),
         "Y": int(y),
         "W": int(w),
-        "H": int(h),
+        "H": int(h)
     }
 
 
-# ------------------------------------------------------------
+# ============================================================
 # Preliminary quality classification
-# ------------------------------------------------------------
+# ============================================================
 
-def classify_grain(
-    row,
-    median_area,
-):
+def classify_grain(row, median_area):
 
     score = 100.0
 
-    area = float(
-        row["Area"]
-    )
+    area = float(row["Area"])
+    aspect = float(row["Aspect_Ratio"])
+    solidity = float(row["Solidity"])
+    circularity = float(row["Circularity"])
+    intensity_std = float(row["Intensity_Std"])
 
-    aspect = float(
-        row["Aspect_Ratio"]
-    )
+    # Relative size instead of a universal fixed grain area.
+    if median_area > 0:
 
-    solidity = float(
-        row["Solidity"]
-    )
+        size_ratio = area / median_area
 
-    circularity = float(
-        row["Circularity"]
-    )
-
-    intensity_std = float(
-        row["Intensity_Std"]
-    )
-
-    # Relative size is better than one universal hard-coded
-    # grain-size threshold.
-    if median_area:
-
-        ratio = area / median_area
-
-        if ratio < 0.55 or ratio > 1.75:
+        if size_ratio < 0.55 or size_ratio > 1.75:
             score -= 25
 
-        elif ratio < 0.70 or ratio > 1.45:
+        elif size_ratio < 0.70 or size_ratio > 1.45:
             score -= 10
 
-    # Shape.
-    if aspect < 1.35 or aspect > 6.5:
+    if aspect < 1.25 or aspect > 6.5:
         score -= 12
 
-    if solidity < 0.78:
+    if solidity < 0.72:
         score -= 20
 
-    elif solidity < 0.88:
+    elif solidity < 0.85:
         score -= 8
 
-    if circularity < 0.20:
-        score -= 12
+    if circularity < 0.18:
+        score -= 10
 
-    elif circularity < 0.30:
-        score -= 6
+    elif circularity < 0.28:
+        score -= 5
 
-    # Surface irregularity indicator.
     if intensity_std > 50:
         score -= 15
 
@@ -642,8 +713,8 @@ def classify_grain(
         0,
         min(
             100,
-            round(score),
-        ),
+            round(score)
+        )
     )
 
     if score >= 78:
@@ -657,19 +728,15 @@ def classify_grain(
 
     return pd.Series([
         score,
-        quality,
+        quality
     ])
 
 
-# ------------------------------------------------------------
+# ============================================================
 # Graphs
-# ------------------------------------------------------------
+# ============================================================
 
-def save_plots(
-    df,
-    output_dir,
-    names,
-):
+def save_plots(df, output_dir, names):
 
     plt.figure(
         figsize=(7, 4.5)
@@ -685,13 +752,13 @@ def save_plots(
                     np.sqrt(
                         len(df)
                     )
-                ),
-            ),
+                )
+            )
         )
 
         plt.hist(
             df["Area"],
-            bins=bins,
+            bins=bins
         )
 
     plt.xlabel(
@@ -711,9 +778,9 @@ def save_plots(
     plt.savefig(
         os.path.join(
             output_dir,
-            names["area"],
+            names["area"]
         ),
-        dpi=150,
+        dpi=150
     )
 
     plt.close()
@@ -727,20 +794,19 @@ def save_plots(
         order = [
             "Good",
             "Mixed",
-            "Defective",
+            "Defective"
         ]
 
-        counts = (
+        (
             df["Quality"]
             .value_counts()
             .reindex(
                 order,
-                fill_value=0,
+                fill_value=0
             )
-        )
-
-        counts.plot(
-            kind="bar"
+            .plot(
+                kind="bar"
+            )
         )
 
     plt.xlabel(
@@ -760,31 +826,31 @@ def save_plots(
     plt.savefig(
         os.path.join(
             output_dir,
-            names["quality"],
+            names["quality"]
         ),
-        dpi=150,
+        dpi=150
     )
 
     plt.close()
 
 
 # ============================================================
-# Main analysis function
+# MAIN FUNCTION USED BY app.py
 # ============================================================
 
 def analyze_grain_image(
     input_path,
     output_dir,
-    job_id,
+    job_id
 ):
 
     os.makedirs(
         output_dir,
-        exist_ok=True,
+        exist_ok=True
     )
 
     # --------------------------------------------------------
-    # 1. Load image
+    # 1. Load
     # --------------------------------------------------------
 
     image = cv2.imread(
@@ -797,51 +863,58 @@ def analyze_grain_image(
         )
 
     # --------------------------------------------------------
-    # 2. Adaptive segmentation
-    # --------------------------------------------------------
-
-    initial_mask = create_grain_mask(
-        image
-    )
-
-    # --------------------------------------------------------
-    # 3. Separate touching grains
-    # --------------------------------------------------------
-
-    clean_mask, contours = split_touching_grains(
-        initial_mask
-    )
-
-    # --------------------------------------------------------
-    # 4. Sort
-    # --------------------------------------------------------
-
-    contours.sort(
-        key=lambda c: (
-            cv2.boundingRect(c)[1],
-            cv2.boundingRect(c)[0],
-        )
-    )
-
-    # --------------------------------------------------------
-    # 5. Features
+    # 2. Detect foreground automatically
     # --------------------------------------------------------
 
     gray = cv2.cvtColor(
         image,
-        cv2.COLOR_BGR2GRAY,
+        cv2.COLOR_BGR2GRAY
     )
+
+    mask, contours, polarity = choose_best_mask(
+        gray
+    )
+
+    # --------------------------------------------------------
+    # 3. Separate touching grains when necessary
+    # --------------------------------------------------------
+
+    mask, contours = split_large_components(
+        mask,
+        contours
+    )
+
+    # Final validation.
+    contours = [
+        c for c in contours
+        if plausible_grain(
+            c,
+            image.shape
+        )
+    ]
+
+    # Sort top-to-bottom / left-to-right.
+    contours.sort(
+        key=lambda c: (
+            cv2.boundingRect(c)[1],
+            cv2.boundingRect(c)[0]
+        )
+    )
+
+    # --------------------------------------------------------
+    # 4. Features
+    # --------------------------------------------------------
 
     rows = []
 
     for grain_id, contour in enumerate(
         contours,
-        start=1,
+        start=1
     ):
 
         row = extract_features(
             contour,
-            gray,
+            gray
         )
 
         row["Grain_ID"] = grain_id
@@ -856,7 +929,7 @@ def analyze_grain_image(
 
     if not df.empty:
 
-        ordered = [
+        columns = [
             "Grain_ID",
             "Area",
             "Perimeter",
@@ -871,12 +944,10 @@ def analyze_grain_image(
             "X",
             "Y",
             "W",
-            "H",
+            "H"
         ]
 
-        df = df[
-            ordered
-        ]
+        df = df[columns]
 
         median_area = float(
             df["Area"].median()
@@ -885,19 +956,18 @@ def analyze_grain_image(
         df[
             [
                 "Quality_Score",
-                "Quality",
+                "Quality"
             ]
         ] = df.apply(
-            lambda row: classify_grain(
-                row,
-                median_area,
-            ),
-            axis=1,
+            lambda row:
+                classify_grain(
+                    row,
+                    median_area
+                ),
+            axis=1
         )
 
     else:
-
-        median_area = None
 
         df["Quality_Score"] = pd.Series(
             dtype=float
@@ -908,7 +978,7 @@ def analyze_grain_image(
         )
 
     # --------------------------------------------------------
-    # 6. Annotated image
+    # 5. Annotated image
     # --------------------------------------------------------
 
     annotated = image.copy()
@@ -919,39 +989,40 @@ def analyze_grain_image(
 
         grain_id = index + 1
 
-        if df.empty:
-            quality = "Unknown"
-        else:
-            quality = str(
+        quality = (
+            str(
                 df.iloc[index]["Quality"]
             )
+            if not df.empty
+            else "Unknown"
+        )
 
         if quality == "Good":
             color = (
                 60,
                 190,
-                80,
+                80
             )
 
         elif quality == "Mixed":
             color = (
                 0,
-                180,
-                255,
+                165,
+                255
             )
 
         elif quality == "Defective":
             color = (
                 40,
                 60,
-                220,
+                220
             )
 
         else:
             color = (
                 255,
                 255,
-                255,
+                255
             )
 
         x, y, w, h = cv2.boundingRect(
@@ -963,7 +1034,7 @@ def analyze_grain_image(
             [contour],
             -1,
             color,
-            2,
+            2
         )
 
         cv2.rectangle(
@@ -971,28 +1042,28 @@ def analyze_grain_image(
             (x, y),
             (x + w, y + h),
             color,
-            1,
+            1
         )
 
         cv2.putText(
             annotated,
-            f"{grain_id}",
+            str(grain_id),
             (
                 x,
                 max(
                     y - 8,
-                    20,
-                ),
+                    20
+                )
             ),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.60,
             color,
             2,
-            cv2.LINE_AA,
+            cv2.LINE_AA
         )
 
     # --------------------------------------------------------
-    # 7. Output filenames
+    # 6. Files
     # --------------------------------------------------------
 
     names = {
@@ -1012,39 +1083,35 @@ def analyze_grain_image(
             f"{job_id}_area.png",
 
         "quality":
-            f"{job_id}_quality.png",
+            f"{job_id}_quality.png"
     }
-
-    # --------------------------------------------------------
-    # 8. Save files
-    # --------------------------------------------------------
 
     cv2.imwrite(
         os.path.join(
             output_dir,
-            names["annotated"],
+            names["annotated"]
         ),
-        annotated,
+        annotated
     )
 
     cv2.imwrite(
         os.path.join(
             output_dir,
-            names["mask"],
+            names["mask"]
         ),
-        clean_mask,
+        mask
     )
 
     df.to_csv(
         os.path.join(
             output_dir,
-            names["features"],
+            names["features"]
         ),
-        index=False,
+        index=False
     )
 
     # --------------------------------------------------------
-    # 9. Summary
+    # 7. Summary
     # --------------------------------------------------------
 
     total = len(df)
@@ -1101,31 +1168,31 @@ def analyze_grain_image(
             "Quality Percentage":
                 round(
                     quality_percentage,
-                    2,
-                ),
+                    2
+                )
         }
     ])
 
     summary.to_csv(
         os.path.join(
             output_dir,
-            names["summary"],
+            names["summary"]
         ),
-        index=False,
+        index=False
     )
 
     # --------------------------------------------------------
-    # 10. Graphs
+    # 8. Graphs
     # --------------------------------------------------------
 
     save_plots(
         df,
         output_dir,
-        names,
+        names
     )
 
     # --------------------------------------------------------
-    # 11. Flask result
+    # 9. Return to Flask
     # --------------------------------------------------------
 
     return {
@@ -1135,7 +1202,8 @@ def analyze_grain_image(
         "good":
             good,
 
-        # Compatibility with the existing template.
+        # Existing results.html may still use "average".
+        # Keep it as an alias for Mixed.
         "average":
             mixed,
 
@@ -1148,7 +1216,7 @@ def analyze_grain_image(
         "quality_percentage":
             round(
                 quality_percentage,
-                2,
+                2
             ),
 
         "annotated_image":
@@ -1172,5 +1240,5 @@ def analyze_grain_image(
         "features":
             df.to_dict(
                 orient="records"
-            ),
+            )
     }
