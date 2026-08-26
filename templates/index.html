@@ -1,39 +1,748 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Grain Quality Analyzer</title>
-<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>GrainVision | Grain Quality Analysis</title>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='style.css') }}"
+    >
 </head>
+
 <body>
-<header class="hero">
-<div class="badge">COMPUTER VISION PROJECT</div>
-<h1>Grain Quality Analyzer</h1>
-<p>Grain Quality Analysis Using Image Processing Approach</p>
-<span>Developed by <strong>Dar Mohsin</strong></span>
-</header>
-<main class="container">
-<section class="card upload-card">
-<h2>Upload Grain Image</h2>
-<p class="muted">Use a clear image with a contrasting background.</p>
-{% if error %}<div class="error">{{ error }}</div>{% endif %}
-<form method="POST" action="/analyze" enctype="multipart/form-data">
-<label class="file-box">
-<span>Choose grain image</span>
-<input type="file" name="grain_image" accept="image/*" required>
-</label>
-<button type="submit">Analyze Grain</button>
-</form>
+
+<!-- =====================================================
+     NAVIGATION
+===================================================== -->
+
+<nav class="navbar">
+
+    <a href="/" class="brand">
+
+        <div class="brand-mark">
+            <span></span>
+            <span></span>
+            <span></span>
+        </div>
+
+        <div>
+            <strong>GrainVision</strong>
+            <small>IMAGE ANALYSIS</small>
+        </div>
+
+    </a>
+
+    <div class="nav-links">
+
+        <a href="#overview">Overview</a>
+        <a href="#analyze">Analyze</a>
+        <a href="#pipeline">Pipeline</a>
+        <a href="#about">About</a>
+
+    </div>
+
+    <a href="#analyze" class="nav-button">
+        Start Analysis
+    </a>
+
+</nav>
+
+
+<!-- =====================================================
+     HERO SECTION
+===================================================== -->
+
+<section class="hero" id="overview">
+
+    <div class="hero-content">
+
+        <div class="eyebrow">
+            COMPUTER VISION · AGRICULTURAL ANALYTICS
+        </div>
+
+        <h1>
+            Understand your grain
+            <em>through its image.</em>
+        </h1>
+
+        <p class="hero-text">
+            A computer-vision based system that examines grain
+            appearance, shape and physical characteristics to
+            identify quality categories.
+        </p>
+
+        <div class="hero-actions">
+
+            <a
+                href="#analyze"
+                class="primary-button"
+            >
+                Analyze a Sample
+                <span>→</span>
+            </a>
+
+            <a
+                href="#pipeline"
+                class="secondary-button"
+            >
+                Explore the process
+            </a>
+
+        </div>
+
+        <div class="hero-meta">
+
+            <div>
+                <strong>01</strong>
+                <span>Upload</span>
+            </div>
+
+            <div>
+                <strong>02</strong>
+                <span>Process</span>
+            </div>
+
+            <div>
+                <strong>03</strong>
+                <span>Analyze</span>
+            </div>
+
+            <div>
+                <strong>04</strong>
+                <span>Report</span>
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- Grain illustration -->
+
+    <div class="hero-visual">
+
+        <div class="visual-circle"></div>
+
+        <div class="grain grain-1"></div>
+        <div class="grain grain-2"></div>
+        <div class="grain grain-3"></div>
+        <div class="grain grain-4"></div>
+        <div class="grain grain-5"></div>
+        <div class="grain grain-6"></div>
+        <div class="grain grain-7"></div>
+
+        <div class="visual-card">
+
+            <div class="status-dot"></div>
+
+            <div>
+                <small>ANALYSIS STATUS</small>
+                <strong>READY</strong>
+            </div>
+
+        </div>
+
+    </div>
+
 </section>
-<section class="pipeline">
-<div><strong>01</strong><span>Preprocess</span></div>
-<div><strong>02</strong><span>Segment</span></div>
-<div><strong>03</strong><span>Detect</span></div>
-<div><strong>04</strong><span>Measure</span></div>
-<div><strong>05</strong><span>Classify</span></div>
+
+
+<!-- =====================================================
+     TAB NAVIGATION
+===================================================== -->
+
+<section class="tabs-section">
+
+    <div class="tabs">
+
+        <a
+            href="#overview"
+            class="tab active"
+        >
+            Overview
+        </a>
+
+        <a
+            href="#analyze"
+            class="tab"
+        >
+            Analyze
+        </a>
+
+        <a
+            href="#pipeline"
+            class="tab"
+        >
+            Pipeline
+        </a>
+
+        <a
+            href="#about"
+            class="tab"
+        >
+            About
+        </a>
+
+    </div>
+
 </section>
-</main>
-<footer>Grain Quality Analysis • Dar Mohsin</footer>
+
+
+<!-- =====================================================
+     ANALYSIS SECTION
+===================================================== -->
+
+<section
+    class="analysis-section"
+    id="analyze"
+>
+
+    <div class="section-heading">
+
+        <div>
+            <span class="section-number">01 / ANALYSIS</span>
+
+            <h2>
+                Inspect a grain sample
+            </h2>
+
+            <p>
+                Upload a clear image of your grain sample.
+                The system will process the image using
+                computer vision techniques.
+            </p>
+        </div>
+
+        <div class="supported">
+            JPG · JPEG · PNG · WEBP
+        </div>
+
+    </div>
+
+
+    {% if error %}
+
+    <div class="error-message">
+        <strong>Analysis failed</strong>
+        <span>{{ error }}</span>
+    </div>
+
+    {% endif %}
+
+
+    <form
+        method="POST"
+        action="/analyze"
+        enctype="multipart/form-data"
+        id="analysisForm"
+    >
+
+        <div
+            class="upload-zone"
+            id="uploadZone"
+        >
+
+            <input
+                type="file"
+                name="grain_image"
+                id="grainImage"
+                accept="image/png,image/jpeg,image/webp"
+                required
+            >
+
+            <div class="upload-icon">
+
+                <svg
+                    viewBox="0 0 100 100"
+                    aria-hidden="true"
+                >
+
+                    <path
+                        d="M52 80C42 70 39 56 44 42C49 29 60 19 74 15C76 30 74 44 67 55C62 65 57 73 52 80Z"
+                    />
+
+                    <path
+                        d="M48 78C35 69 26 56 25 43C24 31 30 20 41 13C49 25 53 37 52 49C52 60 49 69 48 78Z"
+                    />
+
+                </svg>
+
+            </div>
+
+            <h3 id="uploadTitle">
+                Upload your grain image
+            </h3>
+
+            <p id="uploadText">
+                Tap here to choose an image from your phone
+            </p>
+
+            <span class="browse-button">
+                Choose Image
+            </span>
+
+            <div
+                class="file-name"
+                id="fileName"
+            >
+                No image selected
+            </div>
+
+        </div>
+
+
+        <div class="upload-guidelines">
+
+            <div>
+                <span>01</span>
+                <strong>Clear image</strong>
+                <small>
+                    Avoid excessive blur
+                </small>
+            </div>
+
+            <div>
+                <span>02</span>
+                <strong>Good lighting</strong>
+                <small>
+                    Reduce harsh shadows
+                </small>
+            </div>
+
+            <div>
+                <span>03</span>
+                <strong>Clean background</strong>
+                <small>
+                    Separate grain from background
+                </small>
+            </div>
+
+        </div>
+
+
+        <button
+            type="submit"
+            class="analyze-button"
+            id="analyzeButton"
+        >
+
+            <span>
+                Run Grain Analysis
+            </span>
+
+            <b>→</b>
+
+        </button>
+
+    </form>
+
+</section>
+
+
+<!-- =====================================================
+     PIPELINE
+===================================================== -->
+
+<section
+    class="pipeline-section"
+    id="pipeline"
+>
+
+    <div class="section-heading centered">
+
+        <span class="section-number">
+            02 / PROCESS
+        </span>
+
+        <h2>
+            From image to insight
+        </h2>
+
+        <p>
+            The analysis follows a structured
+            computer-vision pipeline.
+        </p>
+
+    </div>
+
+
+    <div class="pipeline-grid">
+
+        <article class="pipeline-card">
+
+            <span class="pipeline-number">
+                01
+            </span>
+
+            <div class="pipeline-symbol">
+                ◌
+            </div>
+
+            <h3>
+                Preprocessing
+            </h3>
+
+            <p>
+                Noise reduction, grayscale conversion
+                and image normalization.
+            </p>
+
+        </article>
+
+
+        <article class="pipeline-card">
+
+            <span class="pipeline-number">
+                02
+            </span>
+
+            <div class="pipeline-symbol">
+                ◉
+            </div>
+
+            <h3>
+                Segmentation
+            </h3>
+
+            <p>
+                Separate grain regions from the
+                image background.
+            </p>
+
+        </article>
+
+
+        <article class="pipeline-card">
+
+            <span class="pipeline-number">
+                03
+            </span>
+
+            <div class="pipeline-symbol">
+                ◈
+            </div>
+
+            <h3>
+                Feature Extraction
+            </h3>
+
+            <p>
+                Measure area, dimensions, shape
+                and intensity characteristics.
+            </p>
+
+        </article>
+
+
+        <article class="pipeline-card">
+
+            <span class="pipeline-number">
+                04
+            </span>
+
+            <div class="pipeline-symbol">
+                ◎
+            </div>
+
+            <h3>
+                Quality Analysis
+            </h3>
+
+            <p>
+                Classify the sample into Good,
+                Mixed or Defective categories.
+            </p>
+
+        </article>
+
+    </div>
+
+</section>
+
+
+<!-- =====================================================
+     QUALITY CATEGORIES
+===================================================== -->
+
+<section class="categories-section">
+
+    <div class="category-intro">
+
+        <span class="section-number">
+            03 / CLASSIFICATION
+        </span>
+
+        <h2>
+            Three quality categories
+        </h2>
+
+        <p>
+            The system is designed around three
+            image-based quality classes.
+        </p>
+
+    </div>
+
+
+    <div class="category-grid">
+
+        <div class="quality-card good">
+
+            <span class="quality-index">
+                01
+            </span>
+
+            <div class="quality-icon">
+                ✓
+            </div>
+
+            <h3>
+                Good
+            </h3>
+
+            <p>
+                Grains with acceptable visual,
+                morphological and shape characteristics.
+            </p>
+
+        </div>
+
+
+        <div class="quality-card mixed">
+
+            <span class="quality-index">
+                02
+            </span>
+
+            <div class="quality-icon">
+                ≈
+            </div>
+
+            <h3>
+                Mixed
+            </h3>
+
+            <p>
+                Samples containing a mixture of
+                normal and visually different grains.
+            </p>
+
+        </div>
+
+
+        <div class="quality-card defective">
+
+            <span class="quality-index">
+                03
+            </span>
+
+            <div class="quality-icon">
+                !
+            </div>
+
+            <h3>
+                Defective
+            </h3>
+
+            <p>
+                Grains showing visible irregularities,
+                damage or abnormal appearance.
+            </p>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =====================================================
+     ABOUT
+===================================================== -->
+
+<section
+    class="about-section"
+    id="about"
+>
+
+    <div class="about-left">
+
+        <span class="section-number">
+            04 / PROJECT
+        </span>
+
+        <h2>
+            Grain Quality Analysis
+            Using Image Processing
+            Approach
+        </h2>
+
+    </div>
+
+
+    <div class="about-right">
+
+        <p>
+            This project applies computer vision techniques
+            to analyze grain images and derive measurable
+            characteristics for preliminary quality assessment.
+        </p>
+
+        <div class="tech-stack">
+
+            <span>OpenCV</span>
+            <span>Python</span>
+            <span>NumPy</span>
+            <span>Pandas</span>
+            <span>Matplotlib</span>
+            <span>Flask</span>
+
+        </div>
+
+        <div class="developer">
+
+            <small>DEVELOPED BY</small>
+
+            <strong>
+                Dar Mohsin
+            </strong>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =====================================================
+     FOOTER
+===================================================== -->
+
+<footer>
+
+    <div class="footer-brand">
+        GrainVision
+    </div>
+
+    <span>
+        Grain Quality Analysis · Dar Mohsin
+    </span>
+
+</footer>
+
+
+<script>
+
+const imageInput =
+    document.getElementById("grainImage");
+
+const uploadZone =
+    document.getElementById("uploadZone");
+
+const fileName =
+    document.getElementById("fileName");
+
+const uploadTitle =
+    document.getElementById("uploadTitle");
+
+const uploadText =
+    document.getElementById("uploadText");
+
+const analyzeButton =
+    document.getElementById("analyzeButton");
+
+
+imageInput.addEventListener(
+    "change",
+    function () {
+
+        if (this.files.length > 0) {
+
+            const file =
+                this.files[0];
+
+            fileName.textContent =
+                file.name;
+
+            uploadTitle.textContent =
+                "Image selected";
+
+            uploadText.textContent =
+                "Ready to analyze your grain sample";
+
+            uploadZone.classList.add(
+                "selected"
+            );
+
+        }
+
+    }
+);
+
+
+uploadZone.addEventListener(
+    "dragover",
+    function (event) {
+
+        event.preventDefault();
+
+        uploadZone.classList.add(
+            "dragging"
+        );
+
+    }
+);
+
+
+uploadZone.addEventListener(
+    "dragleave",
+    function () {
+
+        uploadZone.classList.remove(
+            "dragging"
+        );
+
+    }
+);
+
+
+uploadZone.addEventListener(
+    "drop",
+    function () {
+
+        uploadZone.classList.remove(
+            "dragging"
+        );
+
+    }
+);
+
+
+document
+    .getElementById("analysisForm")
+    .addEventListener(
+        "submit",
+        function () {
+
+            analyzeButton.classList.add(
+                "loading"
+            );
+
+            analyzeButton.querySelector(
+                "span"
+            ).textContent =
+                "Analyzing sample...";
+
+        }
+    );
+
+</script>
+
 </body>
 </html>
